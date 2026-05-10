@@ -207,3 +207,75 @@ def compute_route(start_addr, finish_addr):
         'optimal_stops': stops,
         'total_fuel_cost': total_cost,
     }
+def build_visualization_geojson(route_polyline, stops, start_coords, finish_coords):
+    """
+    Create a GeoJSON FeatureCollection with:
+      - blue LineString for the route
+      - green marker at the start
+      - black‑and‑white checkered marker at the finish
+      - red fuel‑pump markers at each optimal stop
+    """
+    features = [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": route_polyline   # already [lng, lat]
+            },
+            "properties": {
+                "stroke": "#3388ff",
+                "stroke-width": 4
+            }
+        },
+        # ----- Start marker (green flag) -----
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": start_coords  # [lng, lat]
+            },
+            "properties": {
+                "marker-color": "#00cc00",
+                "marker-symbol": "marker",
+                "title": "Start"
+            }
+        },
+        # ----- Finish marker (black/white checkered flag) -----
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": finish_coords  # [lng, lat]
+            },
+            "properties": {
+                "marker-color": "#000000",
+                "marker-symbol": "star",
+                "title": "Finish"
+            }
+        }
+    ]
+
+    # Fuel stops (red pumps) – same as before
+    stop_coords = []
+    for s in stops:
+        if s.get('coordinates') and len(s['coordinates']) == 2:
+            lat, lng = s['coordinates']
+            stop_coords.append([lng, lat])
+
+    if stop_coords:
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "MultiPoint",
+                "coordinates": stop_coords
+            },
+            "properties": {
+                "marker-color": "#ff0000",
+                "marker-symbol": "fuel"
+            }
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "features": features
+    }
