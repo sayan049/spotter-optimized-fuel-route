@@ -41,7 +41,7 @@ class RouteView(APIView):
             # 5. Build visualization GeoJSON
             vis_geojson = build_visualization_geojson(route_poly, stops, start_coords, finish_coords)
 
-            # ----- Optional GeoJSON file download -----
+            #  Optional GeoJSON file download 
             if request.query_params.get('export_geojson', '').lower() in ('true', '1', 'yes'):
                 response = HttpResponse(
                     json.dumps(vis_geojson, indent=2),
@@ -50,7 +50,7 @@ class RouteView(APIView):
                 response['Content-Disposition'] = 'attachment; filename="route_visualization.geojson"'
                 return response
 
-            # ----- Normal JSON response -----
+            #  Normal JSON response 
             result = {
                 'route_map': {
                     'type': 'LineString',

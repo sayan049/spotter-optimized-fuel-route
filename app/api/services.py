@@ -4,11 +4,11 @@ from django.contrib.gis.db.models.functions import LineLocatePoint
 from django.contrib.gis.measure import D
 from .models import TruckStop
 
-# ---------- FREE EXTERNAL APIs ----------
+#  FREE EXTERNAL APIs 
 OSRM_BASE = "https://router.project-osrm.org"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
-# ---------- VEHICLE CONSTANTS ----------
+#  VEHICLE CONSTANTS 
 MAX_RANGE_MILES = 500.0
 MPG = 10.0
 TANK_GALLONS = MAX_RANGE_MILES / MPG   # 50 gallons
@@ -113,7 +113,7 @@ def optimal_fuel_stops(stations, total_miles):
         if not reachable:
             raise RuntimeError("Impossible route – gap > 500 miles between stations")
 
-        # ----- Destination directly reachable? -----
+        #  Destination directly reachable?
         if stations[reachable[-1]]['dist'] == total_miles:
             needed = (total_miles - dist_i) / MPG
             if fuel < needed:
@@ -122,7 +122,7 @@ def optimal_fuel_stops(stations, total_miles):
                 chosen_stops.append(make_stop(stations[i], buy, price_i))
             break
 
-        # ----- Find the nearest station with price < price_i -----
+        #  Find the nearest station with price < price_i
         cheaper_idx = None
         for j in reachable:
             if stations[j]['price'] < price_i:
@@ -227,7 +227,7 @@ def build_visualization_geojson(route_polyline, stops, start_coords, finish_coor
                 "stroke-width": 4
             }
         },
-        # ----- Start marker (green flag) -----
+        #  Start marker (green flag)
         {
             "type": "Feature",
             "geometry": {
@@ -240,7 +240,7 @@ def build_visualization_geojson(route_polyline, stops, start_coords, finish_coor
                 "title": "Start"
             }
         },
-        # ----- Finish marker (black/white checkered flag) -----
+        #  Finish marker (black/white checkered flag)
         {
             "type": "Feature",
             "geometry": {
