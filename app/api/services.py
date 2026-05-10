@@ -14,10 +14,14 @@ MPG = 10.0
 TANK_GALLONS = MAX_RANGE_MILES / MPG   # 50 gallons
 
 def geocode(address):
-    """Convert address string to [lng, lat]."""
+    """Convert address string to (lng, lat, country)."""
     resp = requests.get(
         NOMINATIM_URL,
-        params={'q': f"{address}, USA", 'format': 'json', 'limit': 1},
+        params={
+            'q': address,
+            'format': 'json', 'limit': 1,
+            'addressdetails': 1
+        },
         headers={'User-Agent': 'SpotterAPI/1.0 (your@email.com)'},
         timeout=10
     )
@@ -25,7 +29,8 @@ def geocode(address):
     data = resp.json()
     if not data:
         raise ValueError(f"Could not geocode: {address}")
-    return [float(data[0]['lon']), float(data[0]['lat'])]
+    country = data[0].get('address', {}).get('country', '')
+    return float(data[0]['lon']), float(data[0]['lat']), country
 
 def get_osrm_route(start_lng, start_lat, end_lng, end_lat):
     """Call OSRM, return polyline (GeoJSON coords) and distance in miles."""
@@ -41,14 +46,14 @@ def get_osrm_route(start_lng, start_lat, end_lng, end_lat):
     polyline = route['geometry']['coordinates']
     return polyline, distance_m * 0.000621371   # miles
 
-def filter_stations(polyline, total_miles):
+def filter_stations(polyline, total_miles, corridor_miles=10):
     """
-    Find TruckStops within 3 miles of the route, project them onto the route,
+    Find TruckStops within `corridor_miles` of the route, project them onto the route,
     and return a sorted list of dicts.
     """
-    route_line = LineString(polyline)
+    route_line = LineString(polyline, srid=4326)
     qs = TruckStop.objects.filter(
-        location__distance_lte=(route_line, D(mi=3)),
+        location__distance_lte=(route_line, D(mi=corridor_miles)),
         location__isnull=False
     ).annotate(
         route_fraction=LineLocatePoint(route_line, 'location')
@@ -76,6 +81,33 @@ def filter_stations(polyline, total_miles):
     return sorted(seen.values(), key=lambda x: x['dist'])
 
 
+def _stations_have_gap(stations, total_miles):
+    """Return True if any consecutive stations are more than MAX_RANGE_MILES apart."""
+    if not stations:
+        return True
+    prev = 0.0
+    for s in stations:
+        if s['dist'] - prev > MAX_RANGE_MILES:
+            return True
+        prev = s['dist']
+    if total_miles - prev > MAX_RANGE_MILES:
+        return True
+    return False
+
+
+def find_stations_robust(route_poly, total_miles):
+    """
+    Find stations with a progressively wider corridor until no 500‑mile gaps exist.
+    Returns the station list.
+    """
+    for width in (10, 15, 20, 30, 50):   # try increasingly generous buffers
+        stations = filter_stations(route_poly, total_miles, corridor_miles=width)
+        if not _stations_have_gap(stations, total_miles):
+            return stations
+    # If even 50 miles fails, raise an error – truly impossible
+    raise RuntimeError("Impossible route – gap > 500 miles between stations even with wide corridor")
+
+
 def optimal_fuel_stops(stations, total_miles):
     """
     Provably optimal greedy algorithm.
@@ -83,6 +115,7 @@ def optimal_fuel_stops(stations, total_miles):
     total_miles: total route distance.
     """
     # Virtual start (free full tank) and destination
+    stations = stations.copy()  # avoid mutating the caller's list
     stations.insert(0, {
         'dist': 0.0, 'price': 0.0,    # price 0 because starting fuel is free
         'name': 'Start', 'city': '', 'state': '', 'lat': None, 'lng': None
@@ -182,18 +215,18 @@ def make_stop(station, gallons, price):
 
 def compute_route(start_addr, finish_addr):
     """Main pipeline: geocode → route → stations → optimal plan."""
-    # 1. Geocode (2 API calls)
-    start_coords = geocode(start_addr)
-    finish_coords = geocode(finish_addr)
+    # 1. Geocode (2 API calls) – now returns country as well
+    start_lng, start_lat, _ = geocode(start_addr)
+    finish_lng, finish_lat, _ = geocode(finish_addr)
 
     # 2. Get route (1 API call)
     route_poly, total_miles = get_osrm_route(
-        start_coords[0], start_coords[1],
-        finish_coords[0], finish_coords[1]
+        start_lng, start_lat,
+        finish_lng, finish_lat
     )
 
-    # 3. Filter stations (DB only)
-    stations = filter_stations(route_poly, total_miles)
+    # 3. Find stations with robust corridor widening
+    stations = find_stations_robust(route_poly, total_miles)
 
     # 4. Optimal fuel plan
     stops, total_cost = optimal_fuel_stops(stations, total_miles)
@@ -207,6 +240,8 @@ def compute_route(start_addr, finish_addr):
         'optimal_stops': stops,
         'total_fuel_cost': total_cost,
     }
+
+
 def build_visualization_geojson(route_polyline, stops, start_coords, finish_coords):
     """
     Create a GeoJSON FeatureCollection with:
@@ -220,7 +255,7 @@ def build_visualization_geojson(route_polyline, stops, start_coords, finish_coor
             "type": "Feature",
             "geometry": {
                 "type": "LineString",
-                "coordinates": route_polyline   # already [lng, lat]
+                "coordinates": route_polyline   # [lng, lat]
             },
             "properties": {
                 "stroke": "#3388ff",
@@ -255,7 +290,7 @@ def build_visualization_geojson(route_polyline, stops, start_coords, finish_coor
         }
     ]
 
-    # Fuel stops (red pumps) – same as before
+    # Fuel stops (red pumps) 
     stop_coords = []
     for s in stops:
         if s.get('coordinates') and len(s['coordinates']) == 2:

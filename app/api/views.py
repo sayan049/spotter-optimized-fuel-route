@@ -7,7 +7,7 @@ from .serializers import RouteRequestSerializer
 from .services import (
     geocode,
     get_osrm_route,
-    filter_stations,
+    find_stations_robust,          # <-- replaced filter_stations
     optimal_fuel_stops,
     build_visualization_geojson,
 )
@@ -22,9 +22,25 @@ class RouteView(APIView):
             start_addr = serializer.validated_data['start']
             finish_addr = serializer.validated_data['finish']
 
-            # 1. Geocode
-            start_coords = geocode(start_addr)
-            finish_coords = geocode(finish_addr)
+            # 1. Geocode – now returns (lng, lat, country)
+            start_lng, start_lat, start_country = geocode(start_addr)
+            finish_lng, finish_lat, finish_country = geocode(finish_addr)
+
+            # Reject any non‑US location immediately
+            if start_country != 'United States':
+                return Response(
+                    {'error': 'Start location must be in the United States'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if finish_country != 'United States':
+                return Response(
+                    {'error': 'Finish location must be in the United States'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Keep coordinates as [lng, lat] for downstream functions
+            start_coords = [start_lng, start_lat]
+            finish_coords = [finish_lng, finish_lat]
 
             # 2. Route
             route_poly, total_miles = get_osrm_route(
@@ -32,8 +48,8 @@ class RouteView(APIView):
                 finish_coords[0], finish_coords[1]
             )
 
-            # 3. Filter stations
-            stations = filter_stations(route_poly, total_miles)
+            # 3. Find stations with robust corridor widening (replaces filter_stations)
+            stations = find_stations_robust(route_poly, total_miles)
 
             # 4. Optimal stops
             stops, total_cost = optimal_fuel_stops(stations, total_miles)
@@ -41,7 +57,7 @@ class RouteView(APIView):
             # 5. Build visualization GeoJSON
             vis_geojson = build_visualization_geojson(route_poly, stops, start_coords, finish_coords)
 
-            #  Optional GeoJSON file download 
+            # Optional GeoJSON file download
             if request.query_params.get('export_geojson', '').lower() in ('true', '1', 'yes'):
                 response = HttpResponse(
                     json.dumps(vis_geojson, indent=2),
@@ -50,7 +66,7 @@ class RouteView(APIView):
                 response['Content-Disposition'] = 'attachment; filename="route_visualization.geojson"'
                 return response
 
-            #  Normal JSON response 
+            # Normal JSON response
             result = {
                 'route_map': {
                     'type': 'LineString',
