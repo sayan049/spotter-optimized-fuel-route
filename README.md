@@ -12,7 +12,7 @@ Built with **Django 5**, **Django REST Framework**, and **PostgreSQL/PostGIS**. 
 
    ```bash
    git clone https://github.com/sayan049/spotter-optimized-fuel-route.git
-   cd spotter-backend
+   cd spotter-optimized-fuel-route
 (Optional) Set environment variables – create a .env file from the example:
 
 bash
@@ -40,7 +40,9 @@ start – start location (e.g. Chicago,IL)
 
 finish – end location (e.g. Houston,TX)
 
-Example:
+export_geojson (optional) – set to true to download a ready‑to‑view GeoJSON file for geojson.io.
+
+Example (JSON response):
 
 bash
 curl "http://localhost:8000/api/route/?start=Chicago,IL&finish=Houston,TX"
@@ -67,7 +69,23 @@ json
   ],
   "total_fuel_cost": 175.74
 }
-route_map is a valid GeoJSON LineString that can be pasted directly into geojson.io for visualization.
+Visualization (instant map)
+Add &export_geojson=true to any route request and you’ll download a GeoJSON file that already contains:
+
+Blue route line
+
+Green marker at the starting point
+
+Black star at the destination
+
+Red fuel‑pump markers at every optimal refueling stop
+
+Example:
+
+bash
+curl "http://localhost:8000/api/route/?start=Chicago,IL&finish=Houston,TX&export_geojson=true" -o chicago_houston.geojson
+Then simply drag the .geojson file onto geojson.io – the complete map will appear instantly.
+(You can also do the same from Postman: check the “Send and Download” button or save the response body with a .geojson extension.)
 
 Algorithm
 The system uses a provably optimal greedy algorithm for the continuous‑refueling problem with full future price knowledge:
@@ -91,7 +109,7 @@ spotter-backend/
 │   ├── spotter/          # Django project settings
 │   └── api/              # Main application
 │       ├── models.py
-│       ├── services.py   # Geocoding, routing, optimal fuel planner
+│       ├── services.py   # Geocoding, routing, optimal fuel planner + visualization builder
 │       ├── views.py
 │       ├── urls.py
 │       └── management/commands/
@@ -108,4 +126,3 @@ Docker & Docker Compose
 
 License
 This project is built for a technical assessment and is not intended for production use without additional review.
-
